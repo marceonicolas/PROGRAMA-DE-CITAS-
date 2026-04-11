@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import bcrypt
 import io
+import re
 
 # --- CONFIGURACIÓN DE SUPABASE ---
 URL_SUPABASE = "https://aaoezefzcfgpfupuqfur.supabase.co"
@@ -14,10 +15,19 @@ supabase: Client = create_client(URL_SUPABASE, KEY_SUPABASE)
 def hash_password(password):
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
+def limpiar_telefono(telefono):
+    num_limpio = re.sub(r'\D', '', str(telefono))
+    if num_limpio.startswith('595'):
+        return num_limpio
+    if num_limpio.startswith('0'):
+        num_limpio = num_limpio[1:]
+    return f"595{num_limpio}"
+
 def enviar_whatsapp(telefono, mensaje):
     import urllib.parse
+    num_valido = limpiar_telefono(telefono)
     msg = urllib.parse.quote(mensaje)
-    return f"https://wa.me/{telefono}?text={msg}"
+    return f"https://api.whatsapp.com/send?phone={num_valido}&text={msg}"
 
 # --- FUNCIONES DE SEGURIDAD ---
 def login():
@@ -27,7 +37,6 @@ def login():
     
     if st.button("Ingresar"):
         res = supabase.table("usuarios").select("*").eq("usuario", usuario_input).execute()
-        
         if res.data:
             usuario_db = res.data[0]
             es_valida = False
@@ -60,11 +69,10 @@ else:
     st.sidebar.title(f"Hola, {user['usuario']}")
     st.sidebar.info(f"Rol: {user['rol'].capitalize()}")
     
-    # MENÚ EXTENDIDO (FILTRADO POR ROL)
     menu = ["Mis Agendamientos", "Registrar Paciente"]
     if user['rol'] == 'admin':
         menu.append("Reporte Diario")
-        menu.append("Producción Diaria")  # <-- Nueva Opción
+        menu.append("Producción Diaria")
         menu.append("Panel Supervisor")
     
     choice = st.sidebar.selectbox("Ir a:", menu)
@@ -82,7 +90,7 @@ else:
                 nombre = st.text_input("Nombre")
                 apellido = st.text_input("Apellido")
                 ci = st.text_input("C.I. N°")
-                telefono = st.text_input("Teléfono (Ej: 595981...)")
+                telefono = st.text_input("Teléfono")
             with col2:
                 fecha_cita = st.date_input("Fecha de la Cita", datetime.now())
                 hora_cita = st.time_input("Hora de la Cita")
@@ -123,8 +131,9 @@ else:
         
         if data:
             for row in data:
+                nombre_completo = f"{row['nombre']} {row['apellido']}"
                 emoji = "⏳" if row['estado'] == 'pendiente' else "✅" if row['estado'] == 'firmo' else "❌"
-                with st.expander(f"{emoji} {row['nombre']} {row['apellido']} - {row['fecha_cita']} {row['hora']}"):
+                with st.expander(f"{emoji} {nombre_completo} - {row['fecha_cita']} {row['hora']}"):
                     st.write(f"**CI:** {row['ci']} | **Tel:** {row['telefono']}")
                     st.caption("Historial de Notas:")
                     st.text_area("Historial", value=row['observaciones'], height=120, disabled=True, key=f"hist_{row['id']}")
@@ -133,16 +142,18 @@ else:
 
                     with col_acc1:
                         if row['estado'] == 'pendiente':
-                            msg_rec = f"Hola {row['nombre']}, te recordamos tu cita para el {row['fecha_cita']} a las {row['hora']}."
+                            # MENSAJES PERSONALIZADOS CON NOMBRE
+                            msg_rec = f"Hola {nombre_completo}, te recordamos tu cita para el {row['fecha_cita']} a las {row['hora']} en Alborada Odontología. ¡Te esperamos!"
                             st.link_button("Recordar Cita 📲", enviar_whatsapp(row['telefono'], msg_rec), use_container_width=True)
-                            msg_reag = f"Hola {row['nombre']}, ¿te gustaría reagendar tu cita del {row['fecha_cita']}?"
+                            
+                            msg_reag = f"Hola {nombre_completo}, ¿cómo estás? Notamos que no pudiste confirmar tu cita del {row['fecha_cita']}. ¿Te gustaría que la reagendemos?"
                             st.link_button("Consultar Reagendar 🔄", enviar_whatsapp(row['telefono'], msg_reag), use_container_width=True)
 
                         if row['estado'] == 'no asistio':
                             st.write("**Seguimiento:**")
                             s_cols = st.columns(4)
                             for i in range(1, 5):
-                                msg_s = f"Hola {row['nombre']}, seguimos pendientes de tu caso en Alborada (Seguimiento Semana {i})."
+                                msg_s = f"Hola {nombre_completo}, seguimos pendientes de tu caso en Alborada. Queríamos saber si te gustaría retomar tu tratamiento (Seguimiento Semana {i})."
                                 s_cols[i-1].link_button(f"S{i}", enviar_whatsapp(row['telefono'], msg_s))
 
                     with col_acc2:
@@ -181,8 +192,7 @@ else:
             df = pd.DataFrame([{
                 "Hora": r['hora'], "Paciente": f"{r['nombre']} {r['apellido']}",
                 "CI": r['ci'], "Tel": r['telefono'], "Estado": r['estado'],
-                "Asesor": r['usuarios']['usuario'] if r['usuarios'] else "N/A",
-                "Notas": r['observaciones']
+                "Asesor": r['usuarios']['usuario'] if r['usuarios'] else "N/A"
             } for r in data_rep])
             st.dataframe(df, use_container_width=True)
             buffer = io.BytesIO()
@@ -192,28 +202,22 @@ else:
         else:
             st.warning("No hay agendamientos registrados para esta fecha.")
 
-    # --- NUEVA SECCIÓN: PRODUCCIÓN DIARIA (SOLO CARGAS DEL DÍA) ---
+    # --- SECCIÓN: PRODUCCIÓN DIARIA ---
     elif choice == "Producción Diaria" and user['rol'] == 'admin':
         st.header("📈 Reporte de Carga Diaria")
-        st.write("Muestra los pacientes registrados hoy en el sistema, sin importar su fecha de cita.")
-        f_hoy = st.date_input("Fecha de Carga (Hoy)", datetime.now())
-        
-        # Filtramos por la columna de sistema que guarda la fecha de inserción
+        f_hoy = st.date_input("Fecha de Carga", datetime.now())
         res_prod = supabase.table("pacientes").select("*, usuarios(usuario)").gte("created_at", str(f_hoy)).lte("created_at", str(f_hoy) + " 23:59:59").execute()
         
         if res_prod.data:
             df_prod = pd.DataFrame([{
                 "Paciente": f"{r['nombre']} {r['apellido']}",
-                "Fecha de Cita": r['fecha_cita'],
-                "Hora Cita": r['hora'],
-                "Asesor": r['usuarios']['usuario'] if r['usuarios'] else "N/A",
-                "Estado": r['estado']
+                "Fecha Cita": r['fecha_cita'],
+                "Asesor": r['usuarios']['usuario'] if r['usuarios'] else "N/A"
             } for r in res_prod.data])
-            
-            st.success(f"Total cargado hoy: {len(df_prod)} pacientes.")
+            st.success(f"Total cargado: {len(df_prod)}")
             st.dataframe(df_prod, use_container_width=True)
         else:
-            st.warning("No se han cargado pacientes hoy.")
+            st.warning("No hay registros hoy.")
 
     # --- VISTA: PANEL SUPERVISOR ---
     elif choice == "Panel Supervisor" and user['rol'] == 'admin':
