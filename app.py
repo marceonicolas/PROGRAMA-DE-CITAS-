@@ -60,10 +60,10 @@ else:
     st.sidebar.title(f"Hola, {user['usuario']}")
     st.sidebar.info(f"Rol: {user['rol'].capitalize()}")
     
+    # MENÚ EXTENDIDO (FILTRADO POR ROL)
     menu = ["Mis Agendamientos", "Registrar Paciente"]
     if user['rol'] == 'admin':
         menu.append("Reporte Diario")
-        menu.append("Producción Diaria")
         menu.append("Panel Supervisor")
     
     choice = st.sidebar.selectbox("Ir a:", menu)
@@ -90,6 +90,7 @@ else:
             
             if st.form_submit_button("Guardar Paciente"):
                 if nombre and apellido and telefono:
+                    # Nota inicial con marca de tiempo
                     ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
                     nota_inc = f"[{ahora}]: Registro inicial. {observaciones}" if observaciones else f"[{ahora}]: Registro inicial."
                     
@@ -113,8 +114,12 @@ else:
         with col_f2:
             f_fin = st.date_input("Fecha Fin", datetime.now() + timedelta(days=30))
 
-        # Filtro estricto: Cada asesor ve solo lo suyo.
-        query = supabase.table("pacientes").select("*").eq("vendedor_id", user['id']).gte("fecha_cita", str(f_inicio)).lte("fecha_cita", str(f_fin))
+        # SOLUCIÓN: Si no es admin, filtramos por su ID. Si es admin, ve todo para el Reporte.
+        query = supabase.table("pacientes").select("*").gte("fecha_cita", str(f_inicio)).lte("fecha_cita", str(f_fin))
+        
+        if user['rol'] != 'admin':
+            query = query.eq("vendedor_id", user['id'])
+        
         data = query.execute().data
         
         if data:
@@ -122,13 +127,17 @@ else:
                 emoji = "⏳" if row['estado'] == 'pendiente' else "✅" if row['estado'] == 'firmo' else "❌"
                 with st.expander(f"{emoji} {row['nombre']} {row['apellido']} - {row['fecha_cita']} {row['hora']}"):
                     st.write(f"**CI:** {row['ci']} | **Tel:** {row['telefono']}")
+                    
+                    # Bitácora de notas
                     st.caption("Historial de Notas:")
                     st.text_area("Historial", value=row['observaciones'], height=120, disabled=True, key=f"hist_{row['id']}")
+                    
                     st.divider()
+
                     col_acc1, col_acc2 = st.columns(2)
+
                     with col_acc1:
                         if row['estado'] == 'pendiente':
-                            # SOLUCIÓN ERROR F-STRING: Llave cerrada correctamente
                             msg_rec = f"Hola {row['nombre']}, te recordamos tu cita para el {row['fecha_cita']} a las {row['hora']}."
                             st.link_button("Recordar Cita 📲", enviar_whatsapp(row['telefono'], msg_rec), use_container_width=True)
                             
@@ -143,7 +152,9 @@ else:
                                 s_cols[i-1].link_button(f"S{i}", enviar_whatsapp(row['telefono'], msg_s))
 
                     with col_acc2:
+                        # Campo de nota al cambiar estado
                         nueva_nota_input = st.text_input("Añadir nota al historial:", key=f"n_note_{row['id']}")
+                        
                         nuevo_estado = st.selectbox("Actualizar Estado", ["pendiente", "no asistio", "firmo", "reagenda"], 
                                                   index=["pendiente", "no asistio", "firmo", "reagenda"].index(row['estado']) if row['estado'] in ["pendiente", "no asistio", "firmo", "reagenda"] else 0,
                                                   key=f"st_{row['id']}")
@@ -153,13 +164,21 @@ else:
                             n_hora = st.time_input("Nueva Hora", key=f"h_{row['id']}")
 
                         if st.button("Guardar Cambios", key=f"sv_{row['id']}", use_container_width=True):
+                            # Acumular nota
                             h_viejo = row['observaciones'] if row['observaciones'] else ""
                             ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
+                            
                             nota_final = f"[{ahora}]: {nueva_nota_input}\n{h_viejo}" if nueva_nota_input else h_viejo
-                            upd = {"estado": "pendiente" if nuevo_estado == "reagenda" else nuevo_estado, "observaciones": nota_final}
+
+                            upd = {
+                                "estado": "pendiente" if nuevo_estado == "reagenda" else nuevo_estado,
+                                "observaciones": nota_final
+                            }
+
                             if nuevo_estado == "reagenda":
                                 upd["fecha_cita"] = str(n_fecha)
                                 upd["hora"] = str(n_hora)
+
                             supabase.table("pacientes").update(upd).eq("id", row['id']).execute()
                             st.rerun()
 
@@ -168,53 +187,31 @@ else:
                             st.rerun()
         else:
             st.info("Sin registros.")
-            # --- SECCIÓN: REPORTE DIARIO (SOLO ADMIN - GLOBAL) ---
+
+    # --- SECCIÓN: REPORTE DIARIO (SOLO ADMIN - GLOBAL) ---
     elif choice == "Reporte Diario" and user['rol'] == 'admin':
         st.header("📊 Reporte Matutino Global")
         f_rep = st.date_input("Fecha de Reporte", datetime.now())
+        # Aquí se mantiene la lógica de mostrar todo lo registrado por todos los asesores
+        data_rep = supabase.table("pacientes").select("*, usuarios(usuario)").eq("fecha_cita", str(f_rep)).execute().data
         
-        # 1. Traemos TODOS los registros de la tabla pacientes para esa fecha
-        # Quitamos cualquier filtro de 'vendedor_id' para que sea global
-        res_pacientes = supabase.table("pacientes").select("*").eq("fecha_cita", str(f_rep)).execute()
-        data_p = res_pacientes.data
-        
-        if data_p:
-            # 2. Traemos la lista de usuarios para ponerle nombre al ID del asesor
-            res_usuarios = supabase.table("usuarios").select("id, usuario").execute()
-            mapa_usuarios = {u['id']: u['usuario'] for u in res_usuarios.data}
-            
-            reporte_final = []
-            for r in data_p:
-                # 3. Cruzamos el dato manualmente
-                id_vendedor = r.get('vendedor_id')
-                nombre_asesor = mapa_usuarios.get(id_vendedor, f"Asesor ID: {id_vendedor}")
-                
-                reporte_final.append({
-                    "Hora": r.get('hora', '00:00'),
-                    "Paciente": f"{r.get('nombre', '')} {r.get('apellido', '')}",
-                    "CI": r.get('ci', ''),
-                    "Tel": r.get('telefono', ''),
-                    "Estado": r.get('estado', 'pendiente'),
-                    "Asesor": nombre_asesor, # Aquí aparecerá 'admin_alborada', 'Marta', etc.
-                    "Notas": r.get('observaciones', '')
-                })
-            
-            # Mostramos la tabla global
-            df = pd.DataFrame(reporte_final)
-            st.write(f"Mostrando {len(df)} registros totales del equipo:")
+        if data_rep:
+            df = pd.DataFrame([{
+                "Hora": r['hora'], "Paciente": f"{r['nombre']} {r['apellido']}",
+                "CI": r['ci'], "Tel": r['telefono'], "Estado": r['estado'],
+                "Asesor": r['usuarios']['usuario'] if r['usuarios'] else "N/A",
+                "Notas": r['observaciones']
+            } for r in data_rep])
             st.dataframe(df, use_container_width=True)
             
-            # Botón de descarga para tu control en Excel
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                 df.to_excel(writer, index=False)
-            st.download_button("📥 Descargar Reporte Completo", buffer.getvalue(), f"Global_{f_rep}.xlsx")
+            st.download_button("📥 Descargar Excel", data=buffer.getvalue(), file_name=f"Reporte_{f_rep}.xlsx", mime="application/vnd.ms-excel")
         else:
-            st.warning(f"No hay nada cargado para el {f_rep} por ningún usuario.")
-    
-    # --- SECCIÓN: REPORTE DIARIO (EXISTENTE) ---
-    elif choice == "Reporte Diario" and user['rol'] == 'admin':
-            # --- VISTA: PANEL SUPERVISOR (ADMIN) ---
+            st.warning("No hay agendamientos registrados para esta fecha.")
+
+    # --- VISTA: PANEL SUPERVISOR (SOLO ADMIN) ---
     elif choice == "Panel Supervisor" and user['rol'] == 'admin':
         st.header("👨‍✈️ Panel de Supervisión")
         tab1, tab2 = st.tabs(["Crear Asesor", "Equipo"])
@@ -233,4 +230,4 @@ else:
                 col_u.write(f"**{u['usuario']}** ({u['rol']})")
                 if u['usuario'] != user['usuario'] and col_b.button("Eliminar", key=f"del_{u['id']}"):
                     supabase.table("usuarios").delete().eq("id", u['id']).execute()
-                    st.rerun()        
+                    st.rerun()
