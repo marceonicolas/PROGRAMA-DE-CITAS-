@@ -51,9 +51,6 @@ def crear_link_wa(telefono, mensaje):
 
 # --- INTERFAZ STREAMLIT ---
 st.set_page_config(page_title="Control Alborada Cloud", layout="wide")
-
-if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
 # --- LOGIN ---
 if not st.session_state['logged_in']:
     st.title("🔐 Acceso Sistema Alborada Cloud")
