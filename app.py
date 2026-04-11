@@ -60,7 +60,6 @@ else:
     st.sidebar.title(f"Hola, {user['usuario']}")
     st.sidebar.info(f"Rol: {user['rol'].capitalize()}")
     
-    # MENÚ EXTENDIDO (FILTRADO POR ROL)
     menu = ["Mis Agendamientos", "Registrar Paciente"]
     if user['rol'] == 'admin':
         menu.append("Reporte Diario")
@@ -104,7 +103,7 @@ else:
                 else:
                     st.warning("Completa Nombre, Apellido y Teléfono.")
 
-    # --- VISTA: MIS AGENDAMIENTOS (SOLO LO TUYO) ---
+    # --- VISTA: MIS AGENDAMIENTOS (SE MANTIENE IGUAL) ---
     elif choice == "Mis Agendamientos":
         st.header("📅 Mis Gestiones")
         col_f1, col_f2 = st.columns(2)
@@ -113,7 +112,6 @@ else:
         with col_f2:
             f_fin = st.date_input("Fecha Fin", datetime.now() + timedelta(days=30))
 
-        # FILTRO ESTRICTO: Solo lo que agendó el usuario logueado
         query = supabase.table("pacientes").select("*").eq("vendedor_id", user['id']).gte("fecha_cita", str(f_inicio)).lte("fecha_cita", str(f_fin))
         data = query.execute().data
         
@@ -129,6 +127,7 @@ else:
                     col_acc1, col_acc2 = st.columns(2)
                     with col_acc1:
                         if row['estado'] == 'pendiente':
+                            # CORRECCIÓN DE LLAVE CERRADA AQUÍ
                             msg_rec = f"Hola {row['nombre']}, te recordamos tu cita para el {row['fecha_cita']} a las {row['hora']}."
                             st.link_button("Recordar Cita 📲", enviar_whatsapp(row['telefono'], msg_rec), use_container_width=True)
                             
@@ -169,11 +168,12 @@ else:
         else:
             st.info("Sin registros en tu cuenta.")
 
-    # --- SECCIÓN: REPORTE DIARIO (SOLO ADMIN - GLOBAL) ---
+    # --- REPORTE DIARIO (GLOBAL: TODOS LOS ASESORES) ---
     elif choice == "Reporte Diario" and user['rol'] == 'admin':
         st.header("📊 Reporte Matutino Global")
         f_rep = st.date_input("Fecha de Reporte", datetime.now())
-        # REPORTE GLOBAL: Muestra todo lo registrado por todos
+        
+        # ELIMINADO EL FILTRO DE vendedor_id PARA QUE SEA GLOBAL
         data_rep = supabase.table("pacientes").select("*, usuarios(usuario)").eq("fecha_cita", str(f_rep)).execute().data
         
         if data_rep:
@@ -190,9 +190,9 @@ else:
                 df.to_excel(writer, index=False)
             st.download_button("📥 Descargar Excel", data=buffer.getvalue(), file_name=f"Reporte_{f_rep}.xlsx", mime="application/vnd.ms-excel")
         else:
-            st.warning("No hay agendamientos registrados para esta fecha.")
+            st.warning("No hay agendamientos registrados para esta fecha en toda la clínica.")
 
-    # --- VISTA: PANEL SUPERVISOR (SOLO ADMIN) ---
+    # --- PANEL SUPERVISOR ---
     elif choice == "Panel Supervisor" and user['rol'] == 'admin':
         st.header("👨‍✈️ Panel de Supervisión")
         tab1, tab2 = st.tabs(["Crear Asesor", "Equipo"])
@@ -203,7 +203,7 @@ else:
                 u_rol = st.selectbox("Rol", ["asesor", "admin"])
                 if st.form_submit_button("Crear"):
                     supabase.table("usuarios").insert({"usuario": u_nom, "password": hash_password(u_pass), "rol": u_rol}).execute()
-                    st.success("Usuario creado con éxito")
+                    st.success("Usuario creado")
         with tab2:
             usuarios_bd = supabase.table("usuarios").select("*").execute().data
             if usuarios_bd:
@@ -214,5 +214,3 @@ else:
                         if col_b.button("Eliminar", key=f"del_u_{u['id']}", use_container_width=True):
                             supabase.table("usuarios").delete().eq("id", u['id']).execute()
                             st.rerun()
-            else:
-                st.write("No hay otros usuarios registrados.")
