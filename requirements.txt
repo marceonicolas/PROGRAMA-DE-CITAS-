@@ -1,4 +1,5 @@
 streamlit
 supabase
-bcrypt
 pandas
+bcrypt
+xlsxwriter
