@@ -214,49 +214,7 @@ else:
     
     # --- SECCIÓN: REPORTE DIARIO (EXISTENTE) ---
     elif choice == "Reporte Diario" and user['rol'] == 'admin':
-        # (Aquí va todo el código de tu reporte actual
-    # --- PRODUCCION DIARIA ---
-    elif choice == "Producción Diaria" and user['rol'] == 'admin':
-        st.header("📈 Producción Diaria (Rendimiento)")
-        st.write("Pacientes captados y registrados por el equipo el día de hoy.")
-        
-        hoy_str = datetime.now().strftime("%Y-%m-%d")
-        
-        res_p = supabase.table("pacientes").select("*").gte("creado_en", hoy_str).execute()
-        data_prod = res_p.data
-        
-        if data_prod:
-            res_u = supabase.table("usuarios").select("id, usuario").execute()
-            mapa_asesores = {u['id']: u['usuario'] for u in res_u.data}
-            
-            prod_hoy = [r for r in data_prod if r['creado_en'].startswith(hoy_str)]
-            
-            if prod_hoy:
-                df_p = pd.DataFrame([{
-                    "Asesor": mapa_asesores.get(r['vendedor_id'], "N/A"),
-                    "Paciente": f"{r['nombre']} {r['apellido']}",
-                    "Fecha Cita": r['fecha_cita'],
-                    "Hora de Carga": r['creado_en'][11:16],
-                    "Estado": r['estado']
-                } for r in prod_hoy])
-
-                c1, c2 = st.columns(2)
-                c1.metric("Total Registros Hoy", len(df_p))
-                c2.metric("Asesor más activo", df_p['Asesor'].value_counts().idxmax())
-
-                st.dataframe(df_p, use_container_width=True)
-                
-                st.subheader("Resumen de Cantidades")
-                resumen = df_p['Asesor'].value_counts().reset_index()
-                resumen.columns = ['Asesor', 'Cantidad']
-                st.table(resumen)
-            else:
-                st.info("Aún no hay actividad de carga hoy.")
-        else:
-            st.warning("No se encontraron registros creados hoy.")
-    elif choice == "Panel Supervisor" and user['rol'] == 'admin':
-      
-    # --- VISTA: PANEL SUPERVISOR (ADMIN) ---
+            # --- VISTA: PANEL SUPERVISOR (ADMIN) ---
     elif choice == "Panel Supervisor" and user['rol'] == 'admin':
         st.header("👨‍✈️ Panel de Supervisión")
         tab1, tab2 = st.tabs(["Crear Asesor", "Equipo"])
