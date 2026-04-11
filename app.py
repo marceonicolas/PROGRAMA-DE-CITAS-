@@ -169,29 +169,48 @@ else:
             st.info("Sin registros.")
 
     # --- SECCIÓN: REPORTE DIARIO (GLOBAL - ADMIN) ---
+  # --- SECCIÓN: REPORTE DIARIO (SOLO ADMIN - GLOBAL) ---
     elif choice == "Reporte Diario" and user['rol'] == 'admin':
         st.header("📊 Reporte Matutino Global")
         f_rep = st.date_input("Fecha de Reporte", datetime.now())
         
-        # CONSULTA GLOBAL: Sin filtro de vendedor_id para que el admin vea TODO el equipo.
-        data_rep = supabase.table("pacientes").select("*, usuarios(usuario)").eq("fecha_cita", str(f_rep)).execute().data
+        # EXPLICACIÓN: La cadena "*, usuarios!vendedor_id(usuario)" asegura que Supabase 
+        # use la columna vendedor_id para traer el nombre desde la tabla de usuarios.
+        data_rep = supabase.table("pacientes") \
+            .select("*, usuarios!vendedor_id(usuario)") \
+            .eq("fecha_cita", str(f_rep)) \
+            .execute().data
         
         if data_rep:
-            df = pd.DataFrame([{
-                "Hora": r['hora'], "Paciente": f"{r['nombre']} {r['apellido']}",
-                "CI": r['ci'], "Tel": r['telefono'], "Estado": r['estado'],
-                "Asesor": r['usuarios']['usuario'] if r['usuarios'] else "N/A",
-                "Notas": r['observaciones']
-            } for r in data_rep])
+            reporte_lista = []
+            for r in data_rep:
+                # Extraemos el nombre del asesor de la relación anidada
+                nombre_asesor = r.get('usuarios', {}).get('usuario', 'N/A') if r.get('usuarios') else "N/A"
+                
+                reporte_lista.append({
+                    "Hora": r['hora'], 
+                    "Paciente": f"{r['nombre']} {r['apellido']}",
+                    "CI": r['ci'], 
+                    "Tel": r['telefono'], 
+                    "Estado": r['estado'],
+                    "Asesor": nombre_asesor,
+                    "Notas": r['observaciones']
+                })
+            
+            df = pd.DataFrame(reporte_lista)
             st.dataframe(df, use_container_width=True)
             
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                 df.to_excel(writer, index=False)
-            st.download_button("📥 Descargar Excel", data=buffer.getvalue(), file_name=f"Reporte_{f_rep}.xlsx", mime="application/vnd.ms-excel")
+            st.download_button(
+                label="📥 Descargar Excel", 
+                data=buffer.getvalue(), 
+                file_name=f"Reporte_{f_rep}.xlsx", 
+                mime="application/vnd.ms-excel"
+            )
         else:
-            st.warning("No hay agendamientos registrados para esta fecha.")
-
+            st.warning("No hay agendamientos registrados para esta fecha por ningún asesor.")
     # --- VISTA: PANEL SUPERVISOR (ADMIN) ---
     elif choice == "Panel Supervisor" and user['rol'] == 'admin':
         st.header("👨‍✈️ Panel de Supervisión")
