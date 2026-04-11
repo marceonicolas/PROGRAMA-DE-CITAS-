@@ -64,6 +64,7 @@ else:
     menu = ["Mis Agendamientos", "Registrar Paciente"]
     if user['rol'] == 'admin':
         menu.append("Reporte Diario")
+        menu.append("Producción Diaria")  # <-- Nueva Opción
         menu.append("Panel Supervisor")
     
     choice = st.sidebar.selectbox("Ir a:", menu)
@@ -90,7 +91,6 @@ else:
             
             if st.form_submit_button("Guardar Paciente"):
                 if nombre and apellido and telefono:
-                    # Nota inicial con marca de tiempo
                     ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
                     nota_inc = f"[{ahora}]: Registro inicial. {observaciones}" if observaciones else f"[{ahora}]: Registro inicial."
                     
@@ -114,7 +114,6 @@ else:
         with col_f2:
             f_fin = st.date_input("Fecha Fin", datetime.now() + timedelta(days=30))
 
-        # AJUSTE: Filtramos siempre por vendedor_id sin importar el rol del usuario logueado
         query = supabase.table("pacientes").select("*") \
             .eq("vendedor_id", user['id']) \
             .gte("fecha_cita", str(f_inicio)) \
@@ -127,20 +126,15 @@ else:
                 emoji = "⏳" if row['estado'] == 'pendiente' else "✅" if row['estado'] == 'firmo' else "❌"
                 with st.expander(f"{emoji} {row['nombre']} {row['apellido']} - {row['fecha_cita']} {row['hora']}"):
                     st.write(f"**CI:** {row['ci']} | **Tel:** {row['telefono']}")
-                    
-                    # Bitácora de notas
                     st.caption("Historial de Notas:")
                     st.text_area("Historial", value=row['observaciones'], height=120, disabled=True, key=f"hist_{row['id']}")
-                    
                     st.divider()
-
                     col_acc1, col_acc2 = st.columns(2)
 
                     with col_acc1:
                         if row['estado'] == 'pendiente':
                             msg_rec = f"Hola {row['nombre']}, te recordamos tu cita para el {row['fecha_cita']} a las {row['hora']}."
                             st.link_button("Recordar Cita 📲", enviar_whatsapp(row['telefono'], msg_rec), use_container_width=True)
-                            
                             msg_reag = f"Hola {row['nombre']}, ¿te gustaría reagendar tu cita del {row['fecha_cita']}?"
                             st.link_button("Consultar Reagendar 🔄", enviar_whatsapp(row['telefono'], msg_reag), use_container_width=True)
 
@@ -152,9 +146,7 @@ else:
                                 s_cols[i-1].link_button(f"S{i}", enviar_whatsapp(row['telefono'], msg_s))
 
                     with col_acc2:
-                        # Campo de nota al cambiar estado
                         nueva_nota_input = st.text_input("Añadir nota al historial:", key=f"n_note_{row['id']}")
-                        
                         nuevo_estado = st.selectbox("Actualizar Estado", ["pendiente", "no asistio", "firmo", "reagenda"], 
                                                   index=["pendiente", "no asistio", "firmo", "reagenda"].index(row['estado']) if row['estado'] in ["pendiente", "no asistio", "firmo", "reagenda"] else 0,
                                                   key=f"st_{row['id']}")
@@ -164,21 +156,13 @@ else:
                             n_hora = st.time_input("Nueva Hora", key=f"h_{row['id']}")
 
                         if st.button("Guardar Cambios", key=f"sv_{row['id']}", use_container_width=True):
-                            # Acumular nota
                             h_viejo = row['observaciones'] if row['observaciones'] else ""
                             ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
-                            
                             nota_final = f"[{ahora}]: {nueva_nota_input}\n{h_viejo}" if nueva_nota_input else h_viejo
-
-                            upd = {
-                                "estado": "pendiente" if nuevo_estado == "reagenda" else nuevo_estado,
-                                "observaciones": nota_final
-                            }
-
+                            upd = {"estado": "pendiente" if nuevo_estado == "reagenda" else nuevo_estado, "observaciones": nota_final}
                             if nuevo_estado == "reagenda":
                                 upd["fecha_cita"] = str(n_fecha)
                                 upd["hora"] = str(n_hora)
-
                             supabase.table("pacientes").update(upd).eq("id", row['id']).execute()
                             st.rerun()
 
@@ -188,13 +172,11 @@ else:
         else:
             st.info("Sin registros.")
 
-    # --- SECCIÓN: REPORTE DIARIO (SOLO ADMIN - GLOBAL) ---
+    # --- SECCIÓN: REPORTE DIARIO ---
     elif choice == "Reporte Diario" and user['rol'] == 'admin':
         st.header("📊 REPORTE CLIENTES AGENDADOS TOTAL")
         f_rep = st.date_input("Fecha de Reporte", datetime.now())
-        # Aquí se mantiene la lógica de mostrar todo lo registrado por todos los asesores
         data_rep = supabase.table("pacientes").select("*, usuarios(usuario)").eq("fecha_cita", str(f_rep)).execute().data
-        
         if data_rep:
             df = pd.DataFrame([{
                 "Hora": r['hora'], "Paciente": f"{r['nombre']} {r['apellido']}",
@@ -203,7 +185,6 @@ else:
                 "Notas": r['observaciones']
             } for r in data_rep])
             st.dataframe(df, use_container_width=True)
-            
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                 df.to_excel(writer, index=False)
@@ -211,7 +192,30 @@ else:
         else:
             st.warning("No hay agendamientos registrados para esta fecha.")
 
-    # --- VISTA: PANEL SUPERVISOR (SOLO ADMIN) ---
+    # --- NUEVA SECCIÓN: PRODUCCIÓN DIARIA (SOLO CARGAS DEL DÍA) ---
+    elif choice == "Producción Diaria" and user['rol'] == 'admin':
+        st.header("📈 Reporte de Carga Diaria")
+        st.write("Muestra los pacientes registrados hoy en el sistema, sin importar su fecha de cita.")
+        f_hoy = st.date_input("Fecha de Carga (Hoy)", datetime.now())
+        
+        # Filtramos por la columna de sistema que guarda la fecha de inserción
+        res_prod = supabase.table("pacientes").select("*, usuarios(usuario)").gte("created_at", str(f_hoy)).lte("created_at", str(f_hoy) + " 23:59:59").execute()
+        
+        if res_prod.data:
+            df_prod = pd.DataFrame([{
+                "Paciente": f"{r['nombre']} {r['apellido']}",
+                "Fecha de Cita": r['fecha_cita'],
+                "Hora Cita": r['hora'],
+                "Asesor": r['usuarios']['usuario'] if r['usuarios'] else "N/A",
+                "Estado": r['estado']
+            } for r in res_prod.data])
+            
+            st.success(f"Total cargado hoy: {len(df_prod)} pacientes.")
+            st.dataframe(df_prod, use_container_width=True)
+        else:
+            st.warning("No se han cargado pacientes hoy.")
+
+    # --- VISTA: PANEL SUPERVISOR ---
     elif choice == "Panel Supervisor" and user['rol'] == 'admin':
         st.header("👨‍✈️ Panel de Supervisión")
         tab1, tab2 = st.tabs(["Crear Asesor", "Equipo"])
