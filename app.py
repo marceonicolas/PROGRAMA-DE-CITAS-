@@ -167,56 +167,49 @@ else:
                             st.rerun()
         else:
             st.info("Sin registros.")
-
-# --- SECCIÓN: REPORTE DIARIO (SOLO ADMIN - GLOBAL) ---
+            # --- SECCIÓN: REPORTE DIARIO (SOLO ADMIN - GLOBAL) ---
     elif choice == "Reporte Diario" and user['rol'] == 'admin':
         st.header("📊 Reporte Matutino Global")
         f_rep = st.date_input("Fecha de Reporte", datetime.now())
         
-        # 1. Traemos TODOS los pacientes sin filtros de fecha en la base de datos
-        # Esto evita errores si la fecha en la DB tiene espacios o formatos raros
-        res_pacientes = supabase.table("pacientes").select("*").execute()
+        # 1. Traemos TODOS los registros de la tabla pacientes para esa fecha
+        # Quitamos cualquier filtro de 'vendedor_id' para que sea global
+        res_pacientes = supabase.table("pacientes").select("*").eq("fecha_cita", str(f_rep)).execute()
         data_p = res_pacientes.data
         
         if data_p:
-            # 2. Traemos usuarios para los nombres
+            # 2. Traemos la lista de usuarios para ponerle nombre al ID del asesor
             res_usuarios = supabase.table("usuarios").select("id, usuario").execute()
-            mapa_asesores = {u['id']: u['usuario'] for u in res_usuarios.data}
+            mapa_usuarios = {u['id']: u['usuario'] for u in res_usuarios.data}
             
-            # 3. Filtramos la fecha aquí en Python
-            fecha_seleccionada = str(f_rep)
             reporte_final = []
-            
             for r in data_p:
-                # Comparamos solo la parte de la fecha (los primeros 10 caracteres: YYYY-MM-DD)
-                fecha_db = str(r.get('fecha_cita', ''))[:10]
+                # 3. Cruzamos el dato manualmente
+                id_vendedor = r.get('vendedor_id')
+                nombre_asesor = mapa_usuarios.get(id_vendedor, f"Asesor ID: {id_vendedor}")
                 
-                if fecha_db == fecha_seleccionada:
-                    id_vendedor = r.get('vendedor_id')
-                    nombre_asesor = mapa_asesores.get(id_vendedor, "Desconocido")
-                    
-                    reporte_final.append({
-                        "Hora": r.get('hora', '--:--'), 
-                        "Paciente": f"{r.get('nombre', '')} {r.get('apellido', '')}",
-                        "CI": r.get('ci', ''), 
-                        "Tel": r.get('telefono', ''), 
-                        "Estado": r.get('estado', ''),
-                        "Asesor": nombre_asesor,
-                        "Notas": r.get('observaciones', '')
-                    })
+                reporte_final.append({
+                    "Hora": r.get('hora', '00:00'),
+                    "Paciente": f"{r.get('nombre', '')} {r.get('apellido', '')}",
+                    "CI": r.get('ci', ''),
+                    "Tel": r.get('telefono', ''),
+                    "Estado": r.get('estado', 'pendiente'),
+                    "Asesor": nombre_asesor, # Aquí aparecerá 'admin_alborada', 'Marta', etc.
+                    "Notas": r.get('observaciones', '')
+                })
             
-            if reporte_final:
-                df = pd.DataFrame(reporte_final)
-                st.dataframe(df, use_container_width=True)
-                
-                buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                    df.to_excel(writer, index=False)
-                st.download_button("📥 Descargar Excel", buffer.getvalue(), f"Reporte_{f_rep}.xlsx")
-            else:
-                st.warning(f"No hay registros que coincidan exactamente con la fecha {f_rep} en la base de datos.")
+            # Mostramos la tabla global
+            df = pd.DataFrame(reporte_final)
+            st.write(f"Mostrando {len(df)} registros totales del equipo:")
+            st.dataframe(df, use_container_width=True)
+            
+            # Botón de descarga para tu control en Excel
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False)
+            st.download_button("📥 Descargar Reporte Completo", buffer.getvalue(), f"Global_{f_rep}.xlsx")
         else:
-            st.error("La tabla de pacientes parece estar vacía en Supabase.")
+            st.warning(f"No hay nada cargado para el {f_rep} por ningún usuario.")
     # --- VISTA: PANEL SUPERVISOR (ADMIN) ---
     elif choice == "Panel Supervisor" and user['rol'] == 'admin':
         st.header("👨‍✈️ Panel de Supervisión")
