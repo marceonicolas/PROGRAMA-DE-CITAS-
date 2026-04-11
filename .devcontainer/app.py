@@ -14,8 +14,9 @@ KEY_NUBE = "sb_publishable_7lZS0TMERbN27D-MX9SNEA_ih-6YTdL"
 supabase: Client = create_client(URL_NUBE, KEY_NUBE)
 
 # --- 2. FUNCIONES DE SEGURIDAD ---
-def hash_pass(pwd):
-    return hashlib.sha256(pwd.encode()).hexdigest()
+import hashlib
+def hash_pass(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
 # --- 3. FUNCIONES DE DATOS (NUBE) ---
 def registrar_cliente_nube(n, a, ci, tel, f, h, usuario):
@@ -63,6 +64,7 @@ except Exception as e:
 # --- LOGIN ---
 if not st.session_state['logged_in']:
     st.title("🔐 Acceso Sistema Alborada Cloud")
+    st.write("Hash generado para lo que escribiste:", hash_pass("admin123"))
     user = st.text_input("Usuario")
     pwd = st.text_input("Contraseña", type="password")
     
