@@ -211,14 +211,11 @@ else:
             st.download_button("📥 Descargar Reporte Completo", buffer.getvalue(), f"Global_{f_rep}.xlsx")
         else:
             st.warning(f"No hay nada cargado para el {f_rep} por ningún usuario.")
-            # ... (arriba está el código de Reporte Diario)
     
     # --- SECCIÓN: REPORTE DIARIO (EXISTENTE) ---
     elif choice == "Reporte Diario" and user['rol'] == 'admin':
-        # (Aquí va todo el código de tu reporte actual)
-        # ...
-
-    # --- PEGA AQUÍ LA NUEVA SECCIÓN ---
+        # (Aquí va todo el código de tu reporte actual
+    # --- PRODUCCION DIARIA ---
     elif choice == "Producción Diaria" and user['rol'] == 'admin':
         st.header("📈 Producción Diaria (Rendimiento)")
         st.write("Pacientes captados y registrados por el equipo el día de hoy.")
