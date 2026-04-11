@@ -53,6 +53,12 @@ st.set_page_config(page_title="Control Alborada Cloud", layout="wide")
 
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
+    # Añade esto justo antes de la parte del login para investigar
+try:
+    respuesta_prueba = supabase.table("usuarios").select("*").execute()
+    st.write("Datos encontrados en la tabla:", respuesta_prueba.data)
+except Exception as e:
+    st.write("Error al intentar leer la tabla:", e)
 
 # --- LOGIN ---
 if not st.session_state['logged_in']:
