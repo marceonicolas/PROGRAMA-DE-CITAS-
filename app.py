@@ -168,47 +168,55 @@ else:
         else:
             st.info("Sin registros.")
 
-   # --- SECCIÓN: REPORTE DIARIO (SOLO ADMIN - GLOBAL) ---
+# --- SECCIÓN: REPORTE DIARIO (SOLO ADMIN - GLOBAL) ---
     elif choice == "Reporte Diario" and user['rol'] == 'admin':
         st.header("📊 Reporte Matutino Global")
         f_rep = st.date_input("Fecha de Reporte", datetime.now())
         
-        # 1. Traemos los pacientes de la fecha sin filtros raros
-        res_pacientes = supabase.table("pacientes").select("*").eq("fecha_cita", str(f_rep)).execute()
+        # 1. Traemos TODOS los pacientes sin filtros de fecha en la base de datos
+        # Esto evita errores si la fecha en la DB tiene espacios o formatos raros
+        res_pacientes = supabase.table("pacientes").select("*").execute()
         data_p = res_pacientes.data
         
         if data_p:
-            # 2. Traemos todos los usuarios para cruzar los nombres manualmente
+            # 2. Traemos usuarios para los nombres
             res_usuarios = supabase.table("usuarios").select("id, usuario").execute()
-            # Creamos un diccionario {id: nombre}
             mapa_asesores = {u['id']: u['usuario'] for u in res_usuarios.data}
             
+            # 3. Filtramos la fecha aquí en Python
+            fecha_seleccionada = str(f_rep)
             reporte_final = []
+            
             for r in data_p:
-                # 3. Cruzamos el ID con el nombre del mapa que creamos
-                id_vendedor = r.get('vendedor_id')
-                nombre_asesor = mapa_asesores.get(id_vendedor, f"ID Desconocido ({id_vendedor})")
+                # Comparamos solo la parte de la fecha (los primeros 10 caracteres: YYYY-MM-DD)
+                fecha_db = str(r.get('fecha_cita', ''))[:10]
                 
-                reporte_final.append({
-                    "Hora": r['hora'], 
-                    "Paciente": f"{r['nombre']} {r['apellido']}",
-                    "CI": r['ci'], 
-                    "Tel": r['telefono'], 
-                    "Estado": r['estado'],
-                    "Asesor": nombre_asesor,
-                    "Notas": r['observaciones']
-                })
+                if fecha_db == fecha_seleccionada:
+                    id_vendedor = r.get('vendedor_id')
+                    nombre_asesor = mapa_asesores.get(id_vendedor, "Desconocido")
+                    
+                    reporte_final.append({
+                        "Hora": r.get('hora', '--:--'), 
+                        "Paciente": f"{r.get('nombre', '')} {r.get('apellido', '')}",
+                        "CI": r.get('ci', ''), 
+                        "Tel": r.get('telefono', ''), 
+                        "Estado": r.get('estado', ''),
+                        "Asesor": nombre_asesor,
+                        "Notas": r.get('observaciones', '')
+                    })
             
-            df = pd.DataFrame(reporte_final)
-            st.dataframe(df, use_container_width=True)
-            
-            # Botón de Excel
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                df.to_excel(writer, index=False)
-            st.download_button("📥 Descargar Excel", buffer.getvalue(), f"Reporte_{f_rep}.xlsx")
+            if reporte_final:
+                df = pd.DataFrame(reporte_final)
+                st.dataframe(df, use_container_width=True)
+                
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                    df.to_excel(writer, index=False)
+                st.download_button("📥 Descargar Excel", buffer.getvalue(), f"Reporte_{f_rep}.xlsx")
+            else:
+                st.warning(f"No hay registros que coincidan exactamente con la fecha {f_rep} en la base de datos.")
         else:
-            st.warning(f"No hay registros cargados para el día {f_rep}")
+            st.error("La tabla de pacientes parece estar vacía en Supabase.")
     # --- VISTA: PANEL SUPERVISOR (ADMIN) ---
     elif choice == "Panel Supervisor" and user['rol'] == 'admin':
         st.header("👨‍✈️ Panel de Supervisión")
