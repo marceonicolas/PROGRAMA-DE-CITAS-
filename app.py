@@ -114,11 +114,11 @@ else:
         with col_f2:
             f_fin = st.date_input("Fecha Fin", datetime.now() + timedelta(days=30))
 
-        # SOLUCIÓN: Si no es admin, filtramos por su ID. Si es admin, ve todo para el Reporte.
-        query = supabase.table("pacientes").select("*").gte("fecha_cita", str(f_inicio)).lte("fecha_cita", str(f_fin))
-        
-        if user['rol'] != 'admin':
-            query = query.eq("vendedor_id", user['id'])
+        # AJUSTE: Filtramos siempre por vendedor_id sin importar el rol del usuario logueado
+        query = supabase.table("pacientes").select("*") \
+            .eq("vendedor_id", user['id']) \
+            .gte("fecha_cita", str(f_inicio)) \
+            .lte("fecha_cita", str(f_fin))
         
         data = query.execute().data
         
@@ -190,7 +190,7 @@ else:
 
     # --- SECCIÓN: REPORTE DIARIO (SOLO ADMIN - GLOBAL) ---
     elif choice == "Reporte Diario" and user['rol'] == 'admin':
-        st.header("📊 Reporte Matutino Global")
+        st.header("📊 REPORTE CLIENTES AGENDADOS TOTAL")
         f_rep = st.date_input("Fecha de Reporte", datetime.now())
         # Aquí se mantiene la lógica de mostrar todo lo registrado por todos los asesores
         data_rep = supabase.table("pacientes").select("*, usuarios(usuario)").eq("fecha_cita", str(f_rep)).execute().data
