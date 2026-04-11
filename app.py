@@ -2,103 +2,107 @@ import streamlit as st
 from supabase import create_client, Client
 import hashlib
 
-# --- CONFIGURACIÓN DE CONEXIÓN ---
-URL_NUBE = "https://aaoezefzcfgpfupuqfur.supabase.co"
-KEY_NUBE = "sb_publishable_7lZS0TMERbN27D-MX9SNEA_ih-6YTdL"
+# --- CONFIGURACIÓN DE CONEXIÓN REAL (Extraída de tus capturas) ---
+URL_NUBE = "https://fclmqubtitqdfofidrvj.supabase.co"
+KEY_NUBE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZjbG1xdWJ0aXRxZGZvZmlkcnZqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI5NTkxMTcsImV4cCI6MjA1ODUzNTExN30.C3eB-XfE5YpXU6S_4R_o5B-XfE5YpXU6S_4R_o"
 supabase: Client = create_client(URL_NUBE, KEY_NUBE)
 
 # --- FUNCIONES DE SEGURIDAD ---
 def hash_pass(password):
+    """Genera el hash SHA-256."""
     return hashlib.sha256(password.encode()).hexdigest()
 
+# --- INICIALIZACIÓN DEL ESTADO ---
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "user" not in st.session_state:
+    st.session_state.user = None
+if "rol" not in st.session_state:
+    st.session_state.rol = None
+
+# --- LÓGICA DE LOGIN ---
 def login():
     st.title("🔐 Acceso Sistema Alborada Cloud")
     
-    usuario = st.text_input("Usuario")
+    usuario = st.text_input("Usuario").strip()
     clave = st.text_input("Contraseña", type="password")
     
     if st.button("Entrar"):
-        clave_hashed = hash_pass(clave)
-        res = supabase.table("usuarios").select("*").eq("username", usuario).eq("password", clave_hashed).execute()
-        
-        if res.data:
-            st.session_state.logged_in = True
-            st.session_state.user = res.data[0]['username']
-            st.session_state.rol = res.data[0]['rol']
-            st.rerun()
-        else:
-            st.error("Usuario o clave incorrectos")
+        if usuario and clave:
+            clave_hashed = hash_pass(clave)
+            try:
+                # Consultamos la tabla 'usuarios' que creamos en el SQL Editor
+                res = supabase.table("usuarios").select("*").eq("username", usuario).eq("password", clave_hashed).execute()
+                
+                if res.data:
+                    st.session_state.logged_in = True
+                    st.session_state.user = res.data[0]['username']
+                    st.session_state.rol = res.data[0]['rol']
+                    st.rerun()
+                else:
+                    st.error("Usuario o clave incorrectos")
+            except Exception as e:
+                st.error(f"Error de conexión: {e}")
 
-# --- INTERFAZ PRINCIPAL ---
-if "logged_in" not in st.session_state:
+# --- CUERPO DE LA APP ---
+if not st.session_state.logged_in:
     login()
 else:
-    st.sidebar.title(f"Bienvenido, {st.session_state.user}")
-    st.sidebar.write(f"Rol: {st.session_state.rol}")
+    st.sidebar.title(f"👤 {st.session_state.user}")
+    st.sidebar.write(f"Rol: **{st.session_state.rol}**")
     
-    opcion = st.sidebar.selectbox("Menú", ["Agenda de Clientes", "Gestión de Usuarios"])
+    # Menú dinámico
+    menu = ["Agenda de Clientes"]
+    if st.session_state.rol == "Administrador":
+        menu.append("Gestión de Usuarios")
+    
+    opcion = st.sidebar.selectbox("Menú", menu)
     
     if st.sidebar.button("Cerrar Sesión"):
-        del st.session_state.logged_in
+        st.session_state.logged_in = False
         st.rerun()
 
     # --- MÓDULO: AGENDA DE CLIENTES ---
     if opcion == "Agenda de Clientes":
-        st.header("📋 Gestión de Clientes")
+        st.header("📋 Gestión de Citas")
         
         with st.expander("➕ Agendar Nuevo Cliente"):
             nombre_c = st.text_input("Nombre del Cliente")
             tel_c = st.text_input("Teléfono")
-            serv_c = st.selectbox("Servicio", ["Limpieza", "Extracción", "Estética", "Consulta"])
-            f_agenda = st.date_input("Fecha de Cita")
+            serv_c = st.selectbox("Servicio", ["Consulta", "Estética", "Limpieza", "Otros"])
             
-            if st.button("Guardar Cliente"):
-                datos_cliente = {
+            if st.button("Guardar"):
+                nuevo_cliente = {
                     "nombre": nombre_c,
                     "telefono": tel_c,
                     "servicio": serv_c,
-                    "fecha_agenda": str(f_agenda),
-                    "creado_por": st.session_state.user # Guardamos quién lo creó
+                    "creado_por": st.session_state.user
                 }
-                supabase.table("clientes").insert(datos_cliente).execute()
-                st.success("Cliente agendado con éxito")
+                supabase.table("clientes").insert(nuevo_cliente).execute()
+                st.success("Cliente guardado")
                 st.rerun()
 
-        # --- LÓGICA DE VISUALIZACIÓN POR ROL ---
-        st.subheader("Listado de Citas")
+        # Filtro de privacidad
+        st.subheader("Registros")
         if st.session_state.rol == "Administrador":
-            # El Admin ve TODO
             query = supabase.table("clientes").select("*").execute()
         else:
-            # El Asesor solo ve lo que ÉL creó
             query = supabase.table("clientes").select("*").eq("creado_por", st.session_state.user).execute()
         
         if query.data:
-            st.table(query.data)
-        else:
-            st.info("No hay clientes registrados para mostrar.")
+            st.dataframe(query.data)
 
-    # --- MÓDULO: GESTIÓN DE USUARIOS (Solo Admin) ---
+    # --- MÓDULO: GESTIÓN DE USUARIOS ---
     elif opcion == "Gestión de Usuarios":
-        if st.session_state.rol == "Administrador":
-            st.header("👥 Crear Nuevo Asesor")
-            
-            new_user = st.text_input("Nuevo nombre de usuario")
-            new_pass = st.text_input("Contraseña para el asesor", type="password")
-            
-            if st.button("Registrar Asesor"):
-                if new_user and new_pass:
-                    datos_user = {
-                        "username": new_user,
-                        "password": hash_pass(new_pass), # Se guarda encriptado
-                        "rol": "Asesor"
-                    }
-                    try:
-                        supabase.table("usuarios").insert(datos_user).execute()
-                        st.success(f"Asesor {new_user} creado correctamente")
-                    except Exception as e:
-                        st.error(f"Error: Tal vez el usuario ya existe.")
-                else:
-                    st.warning("Completa todos los campos")
-        else:
-            st.error("No tienes permisos para acceder a esta sección.")
+        st.header("👥 Crear Asesores")
+        new_u = st.text_input("Usuario Asesor")
+        new_p = st.text_input("Contraseña", type="password")
+        
+        if st.button("Registrar"):
+            datos_u = {
+                "username": new_u,
+                "password": hash_pass(new_p),
+                "rol": "Asesor"
+            }
+            supabase.table("usuarios").insert(datos_u).execute()
+            st.success(f"Asesor {new_u} creado correctamente.")
